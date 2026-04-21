@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 echo "26.4.1" > .xcode-version
+=======
+echo "26.4.1" > .xcode-version
+>>>>>>> 774e14a2b84a0259621f8a24bb7fddd4646331d9
