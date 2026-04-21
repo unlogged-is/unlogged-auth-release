@@ -102,4 +102,4 @@ For questions or concerns, open an issue on this repository or contact us at [he
 
 ---
 
-*unlogged Auth is developed by unlogged LLC, Plymouth, MI.*
+*Made with 🤍 in Michigan by unlogged LLC*
