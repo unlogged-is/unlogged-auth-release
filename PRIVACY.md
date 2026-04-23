@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: April 21, 2026**
+**Last updated: April 23, 2026**
 
 ## Overview
 
@@ -24,17 +24,9 @@ All data — including your TOTP secrets, account names, and issuer labels — i
 
 ## Open Source
 
-unlogged Auth is fully open source. The complete source code is available in this repository.
+unlogged Auth is fully open source. The complete source code is available in this repository. You do not have to take our word for any claim made in this policy — you can read the code yourself and verify it.
 
 We believe transparency is the only meaningful foundation for a privacy claim.
-
----
-
-## Reproducible Builds
-
-unlogged Auth supports reproducible builds. This means the binary distributed on the App Store can be independently verified to match the source code in this repository. You are never asked to trust a black box.
-
-Instructions for verifying the build are available in [BUILDING.md](./BUILDING.md).
 
 ---
 
@@ -45,9 +37,9 @@ unlogged LLC is committed to never introducing changes that degrade user privacy
 - We will never add analytics, telemetry, or data collection of any kind
 - We will never integrate advertising or tracking SDKs
 - We will never introduce network access for the purpose of transmitting user data
-- Features that require network access (e.g. optional cloud backup) are strictly opt-in, clearly documented, and disabled by default
+- Any features that require network access are strictly opt-in, clearly documented, and disabled by default
 
-If circumstances outside our control ever force a change to these commitments, such as a legal requirement, we will disclose it clearly in this policy and in the repository's commit history.
+If circumstances outside our control ever force a change to these commitments — such as a legal requirement — we will disclose it clearly in this policy and in the repository's commit history.
 
 ---
 
@@ -80,7 +72,7 @@ If you use a self-hosted server, you retain full control over your backup data. 
 
 ## Crash Reporting
 
-unlogged Auth does not include any crash reporting or diagnostic data collection. If you experience a bug, you can report it directly via [GitHub Issues](https://github.com/unlogged-is/unlogged-auth-release/issues).
+unlogged Auth does not include any crash reporting or diagnostic data collection. If you experience a bug, you can report it directly via [GitHub Issues](https://github.com/unloggedllc/unlogged-auth/issues).
 
 ---
 
@@ -98,8 +90,8 @@ Any changes to this policy will be committed to this repository with a revised "
 
 ## Contact
 
-For questions or concerns, open an issue on this repository or contact us at [hello@unlogged.is](mailto:hello@unlogged.is).
+For questions or concerns, open an issue on this repository or contact us at [privacy@unlogged.is](mailto:privacy@unlogged.is).
 
 ---
 
-*Made with 🤍 in Michigan by unlogged LLC*
+*unlogged Auth is developed by unlogged LLC, Plymouth, MI.*
