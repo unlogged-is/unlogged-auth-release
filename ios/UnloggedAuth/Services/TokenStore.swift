@@ -6,16 +6,19 @@ class TokenStore {
     var tokens: [OTPToken] = []
     var groups: [TokenGroup] = []
     var settings: AppSettingsData = AppSettingsData()
+    var trashedTokens: [TrashedToken] = []
 
     private let tokensFileURL: URL
     private let groupsFileURL: URL
     private let settingsFileURL: URL
+    private let trashFileURL: URL
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         tokensFileURL = docs.appendingPathComponent("tokens.encrypted")
         groupsFileURL = docs.appendingPathComponent("groups.json")
         settingsFileURL = docs.appendingPathComponent("settings.json")
+        trashFileURL = docs.appendingPathComponent("trash.encrypted")
         loadAll()
     }
 
@@ -23,6 +26,8 @@ class TokenStore {
         loadTokens()
         loadGroups()
         loadSettings()
+        loadTrash()
+        cleanupExpiredTrash()
     }
 
     private func loadTokens() {
@@ -61,6 +66,32 @@ class TokenStore {
         }
     }
 
+    private func loadTrash() {
+        guard FileManager.default.fileExists(atPath: trashFileURL.path) else { return }
+        do {
+            let encrypted = try Data(contentsOf: trashFileURL)
+            let decrypted = try EncryptionService.decrypt(encrypted)
+            trashedTokens = try JSONDecoder().decode([TrashedToken].self, from: decrypted)
+        } catch {
+            if let raw = try? Data(contentsOf: trashFileURL),
+               let decoded = try? JSONDecoder().decode([TrashedToken].self, from: raw) {
+                trashedTokens = decoded
+            }
+        }
+    }
+
+    func saveTrash() {
+        if trashedTokens.isEmpty {
+            try? FileManager.default.removeItem(at: trashFileURL)
+            return
+        }
+        do {
+            let data = try JSONEncoder().encode(trashedTokens)
+            let encrypted = try EncryptionService.encrypt(data)
+            try encrypted.write(to: trashFileURL, options: .atomic)
+        } catch {}
+    }
+
     func loadSettings() {
         guard FileManager.default.fileExists(atPath: settingsFileURL.path) else { return }
         if let data = try? Data(contentsOf: settingsFileURL),
@@ -90,9 +121,46 @@ class TokenStore {
         }
     }
 
+    func trashToken(id: UUID) {
+        guard let index = tokens.firstIndex(where: { $0.id == id }) else { return }
+        let token = tokens.remove(at: index)
+        let trashed = TrashedToken(token: token, deletedAt: Date())
+        trashedTokens.append(trashed)
+        saveTokens()
+        saveTrash()
+    }
+
     func deleteToken(id: UUID) {
         tokens.removeAll { $0.id == id }
         saveTokens()
+    }
+
+    func restoreToken(id: UUID) {
+        guard let index = trashedTokens.firstIndex(where: { $0.token.id == id }) else { return }
+        let restored = trashedTokens.remove(at: index).token
+        tokens.append(restored)
+        saveTrash()
+        saveTokens()
+    }
+
+    func permanentlyDeleteTrashedToken(id: UUID) {
+        trashedTokens.removeAll { $0.token.id == id }
+        saveTrash()
+    }
+
+    func emptyTrash() {
+        trashedTokens.removeAll()
+        saveTrash()
+    }
+
+    func cleanupExpiredTrash() {
+        guard let days = settings.trashRetention.days else { return }
+        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        let before = trashedTokens.count
+        trashedTokens.removeAll { $0.deletedAt < cutoff }
+        if trashedTokens.count != before {
+            saveTrash()
+        }
     }
 
     func incrementCounter(for tokenId: UUID) {

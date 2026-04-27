@@ -29,11 +29,22 @@ struct SettingsView: View {
     @State private var showRemovePasswordPrompt = false
     @State private var removePasswordInput: String = ""
     @State private var removePasswordError: String?
+    @State private var showExportChoice = false
     @State private var showExportWarning = false
     @State private var showPlaintextExporter = false
     @State private var plaintextExportData: Data?
     @State private var showExportSuccess = false
+    @State private var exportSuccessMessage = ""
+    @State private var showExportFailure = false
+    @State private var exportFailureMessage = ""
     @State private var showExportEmpty = false
+    @State private var showEncryptedExportPassword = false
+    @State private var encryptedExportPassword = ""
+    @State private var encryptedExportConfirm = ""
+    @State private var encryptedExportError: String?
+    @State private var showEncryptedExporter = false
+    @State private var encryptedExportData: Data?
+    @State private var encryptedExportFilename = ""
     @State private var showPinSetup = false
     @State private var showRemovePinPrompt = false
     @State private var removePinError = false
@@ -47,6 +58,7 @@ struct SettingsView: View {
                 appearanceSection
                 backupSection
                 importExportSection
+                trashSection
                 aboutSection
             }
             .scrollContentBackground(.hidden)
@@ -143,6 +155,20 @@ struct SettingsView: View {
         } message: {
             Text("This will export all \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s") as unencrypted otpauth:// URIs.\n\nAnyone with access to this file can add your accounts to their authenticator app. Store it securely and delete it after use.")
         }
+        .alert("Set Export Password", isPresented: $showEncryptedExportPassword) {
+            SecureField("Password", text: $encryptedExportPassword)
+            SecureField("Confirm Password", text: $encryptedExportConfirm)
+            Button("Cancel", role: .cancel) {
+                encryptedExportPassword = ""
+                encryptedExportConfirm = ""
+                encryptedExportError = nil
+            }
+            Button("Export") {
+                performEncryptedExport()
+            }
+        } message: {
+            Text("Your tokens will be encrypted with AES-256. You'll need this password to import the file.\(encryptedExportError.map { "\n\n⚠️ \($0)" } ?? "")")
+        }
         .alert("Nothing to Export", isPresented: $showExportEmpty) {
             Button("OK") {}
         } message: {
@@ -151,13 +177,34 @@ struct SettingsView: View {
         .alert("Export Complete", isPresented: $showExportSuccess) {
             Button("OK") {}
         } message: {
-            Text("Your tokens have been exported. Remember to store the file securely and delete it when you're done.")
+            Text(exportSuccessMessage)
+        }
+        .alert("Export Failed", isPresented: $showExportFailure) {
+            Button("OK") {}
+        } message: {
+            Text(exportFailureMessage)
         }
         .fileExporter(isPresented: $showPlaintextExporter, document: ExportDocument(data: plaintextExportData ?? Data()), contentType: .plainText, defaultFilename: "unlogged-auth-export.txt") { result in
-            if case .success = result {
+            switch result {
+            case .success(let url):
+                exportSuccessMessage = "Exported \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s") as plaintext URIs.\n\nSaved to:\n\(url.lastPathComponent)\n\nStore it securely and delete it after use."
                 showExportSuccess = true
+            case .failure(let error):
+                exportFailureMessage = "Could not export tokens.\n\n\(error.localizedDescription)"
+                showExportFailure = true
             }
             plaintextExportData = nil
+        }
+        .fileExporter(isPresented: $showEncryptedExporter, document: BackupDocument(data: encryptedExportData ?? Data()), contentType: .ulauth, defaultFilename: encryptedExportFilename) { result in
+            switch result {
+            case .success(let url):
+                exportSuccessMessage = "Exported \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s") as an encrypted file.\n\nSaved to:\n\(url.lastPathComponent)\n\nYou'll need your export password to import this file."
+                showExportSuccess = true
+            case .failure(let error):
+                exportFailureMessage = "Could not export tokens.\n\n\(error.localizedDescription)"
+                showExportFailure = true
+            }
+            encryptedExportData = nil
         }
         .sheet(isPresented: $showPinSetup) {
             NavigationStack {
@@ -224,6 +271,20 @@ struct SettingsView: View {
                 }
             }
             .presentationDetents([.large])
+        }
+        .confirmationDialog("Export Format", isPresented: $showExportChoice, titleVisibility: .visible) {
+            Button("Encrypted (.ulauth)") {
+                encryptedExportPassword = ""
+                encryptedExportConfirm = ""
+                encryptedExportError = nil
+                showEncryptedExportPassword = true
+            }
+            Button("Plaintext URIs (.txt)") {
+                showExportWarning = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose how to export your \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s").")
         }
         .alert("Remove Device Passcode Lock?", isPresented: $showRemoveDevicePasscodeConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -418,10 +479,46 @@ struct SettingsView: View {
                 if store.tokens.isEmpty {
                     showExportEmpty = true
                 } else {
-                    showExportWarning = true
+                    showExportChoice = true
                 }
             } label: {
                 Label("Export Tokens", systemImage: "square.and.arrow.up")
+            }
+        }
+        .listRowBackground(Color.themedSecondary(for: colorScheme))
+    }
+
+    @ViewBuilder
+    private var trashSection: some View {
+        Section("Trash") {
+            Picker(selection: Binding(
+                get: { store.settings.trashRetention },
+                set: {
+                    store.settings.trashRetention = $0
+                    store.saveSettings()
+                    if $0 == .off {
+                        store.emptyTrash()
+                    }
+                }
+            )) {
+                ForEach(TrashRetention.allCases, id: \.self) { retention in
+                    Text(retention.displayName).tag(retention)
+                }
+            } label: {
+                Label("Auto-Delete After", systemImage: "clock.arrow.circlepath")
+            }
+
+            NavigationLink {
+                TrashView(store: store)
+            } label: {
+                HStack {
+                    Label("Trash", systemImage: "trash")
+                    Spacer()
+                    if !store.trashedTokens.isEmpty {
+                        Text("\(store.trashedTokens.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .listRowBackground(Color.themedSecondary(for: colorScheme))
@@ -503,6 +600,37 @@ struct SettingsView: View {
         guard let data = ExportService.exportAsURIData(tokens: store.tokens) else { return }
         plaintextExportData = data
         showPlaintextExporter = true
+    }
+
+    private func performEncryptedExport() {
+        guard !encryptedExportPassword.isEmpty else {
+            encryptedExportError = "Password cannot be empty"
+            encryptedExportPassword = ""
+            encryptedExportConfirm = ""
+            showEncryptedExportPassword = true
+            return
+        }
+        guard encryptedExportPassword == encryptedExportConfirm else {
+            encryptedExportError = "Passwords don't match"
+            encryptedExportPassword = ""
+            encryptedExportConfirm = ""
+            showEncryptedExportPassword = true
+            return
+        }
+        do {
+            let result = try BackupService.createEncryptedBackup(store: store, password: encryptedExportPassword)
+            encryptedExportData = result.data
+            encryptedExportFilename = result.filename
+            encryptedExportPassword = ""
+            encryptedExportConfirm = ""
+            encryptedExportError = nil
+            showEncryptedExporter = true
+        } catch {
+            encryptedExportError = error.localizedDescription
+            encryptedExportPassword = ""
+            encryptedExportConfirm = ""
+            showEncryptedExportPassword = true
+        }
     }
 
     private func handleExportResult(_ result: Result<URL, Error>) {

@@ -7,11 +7,18 @@ struct TokensListView: View {
     @State private var showAddToken: Bool = false
     @State private var editingToken: OTPToken?
     @State private var tokenToMove: OTPToken?
+    @State private var tokenToDelete: OTPToken?
     @State private var copiedTokenId: UUID?
     @FocusState private var isSearchFocused: Bool
 
     private var filteredTokens: [OTPToken] {
-        let sorted = store.tokens.sorted { $0.sortOrder < $1.sortOrder }
+        let sorted: [OTPToken]
+        switch store.settings.tokenSortOrder {
+        case .name:
+            sorted = store.tokens.sorted { $0.issuer.localizedCaseInsensitiveCompare($1.issuer) == .orderedAscending }
+        case .recentlyAdded:
+            sorted = store.tokens.sorted { $0.createdAt > $1.createdAt }
+        }
         guard !searchText.isEmpty else { return sorted }
         return sorted.filter {
             $0.issuer.localizedStandardContains(searchText) ||
@@ -65,7 +72,7 @@ struct TokensListView: View {
                                     }
                                     Divider()
                                     Button(role: .destructive) {
-                                        withAnimation { store.deleteToken(id: token.id) }
+                                        tokenToDelete = token
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -86,8 +93,27 @@ struct TokensListView: View {
                     Button {
                         showAddToken = true
                     } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
+                        Image(systemName: "plus")
+                            .font(.subheadline)
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Sort By", selection: Binding(
+                            get: { store.settings.tokenSortOrder },
+                            set: {
+                                store.settings.tokenSortOrder = $0
+                                store.saveSettings()
+                            }
+                        )) {
+                            Label("Name", systemImage: "textformat.abc")
+                                .tag(TokenSortOrder.name)
+                            Label("Recently Added", systemImage: "clock")
+                                .tag(TokenSortOrder.recentlyAdded)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.subheadline)
                     }
                 }
             }
@@ -104,6 +130,37 @@ struct TokensListView: View {
             }
             .sheet(item: $tokenToMove) { token in
                 MoveToGroupSheet(store: store, token: token)
+            }
+            .alert(
+                "Delete Token?",
+                isPresented: Binding(
+                    get: { tokenToDelete != nil },
+                    set: { if !$0 { tokenToDelete = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { tokenToDelete = nil }
+                if store.settings.trashRetention != .off {
+                    Button("Move to Trash", role: .destructive) {
+                        if let token = tokenToDelete {
+                            withAnimation { store.trashToken(id: token.id) }
+                        }
+                        tokenToDelete = nil
+                    }
+                }
+                Button("Delete Permanently", role: .destructive) {
+                    if let token = tokenToDelete {
+                        withAnimation { store.deleteToken(id: token.id) }
+                    }
+                    tokenToDelete = nil
+                }
+            } message: {
+                if let token = tokenToDelete {
+                    if store.settings.trashRetention != .off {
+                        Text("\"\(token.issuer)\" will be moved to trash and automatically deleted after \(store.settings.trashRetention.displayName.lowercased()).")
+                    } else {
+                        Text("\"\(token.issuer)\" will be permanently deleted. This cannot be undone.")
+                    }
+                }
             }
         }
     }

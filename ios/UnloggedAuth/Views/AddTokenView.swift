@@ -20,6 +20,7 @@ struct AddTokenView: View {
     @State private var iconLookupTask: Task<Void, Never>?
     @State private var showIconPicker = false
     @State private var iconRefreshId = UUID()
+    @State private var addedToken: OTPToken?
 
     enum AddMode: String, CaseIterable {
         case scan = "Scan QR"
@@ -28,30 +29,40 @@ struct AddTokenView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Mode", selection: $mode) {
-                    ForEach(AddMode.allCases, id: \.self) { m in
-                        Text(m.rawValue).tag(m)
+            Group {
+                if let token = addedToken {
+                    tokenAddedView(token: token)
+                } else {
+                    VStack(spacing: 0) {
+                        Picker("Mode", selection: $mode) {
+                            ForEach(AddMode.allCases, id: \.self) { m in
+                                Text(m.rawValue).tag(m)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+
+                        if mode == .scan {
+                            scannerView
+                        } else {
+                            manualEntryForm
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-
-                if mode == .scan {
-                    scannerView
-                } else {
-                    manualEntryForm
-                }
             }
-            .navigationTitle("Add Token")
+            .navigationTitle(addedToken != nil ? "Token Added" : "Add Token")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    if addedToken == nil {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if mode == .manual {
+                    if addedToken != nil {
+                        Button("Done") { dismiss() }
+                    } else if mode == .manual {
                         Button("Add") { addManualToken() }
                             .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -90,13 +101,21 @@ struct AddTokenView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
+            .frame(height: 300)
             .background(Color(.systemGroupedBackground))
+            .clipShape(.rect(cornerRadius: 16))
+            .padding(.horizontal)
+            .padding(.top, 16)
             #else
             if AVCaptureDevice.default(for: .video) != nil {
                 QRScannerView { uri in
                     handleScannedURI(uri)
                 }
+                .frame(height: 300)
+                .clipShape(.rect(cornerRadius: 16))
+                .padding(.horizontal)
+                .padding(.top, 16)
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "camera.fill")
@@ -109,10 +128,20 @@ struct AddTokenView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+                .frame(height: 300)
                 .background(Color(.systemGroupedBackground))
+                .clipShape(.rect(cornerRadius: 16))
+                .padding(.horizontal)
+                .padding(.top, 16)
             }
             #endif
+
+            Text("Point your camera at a QR code")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Spacer()
 
             VStack(spacing: 8) {
                 Text("Or paste an otpauth:// URI")
@@ -250,6 +279,10 @@ struct AddTokenView: View {
         }
     }
 
+    private func tokenAddedView(token: OTPToken) -> some View {
+        TokenAddedConfirmationView(token: token, iconFetcher: iconFetcher)
+    }
+
     private func addManualToken() {
         let cleanSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard Base32.decode(cleanSecret) != nil else {
@@ -269,7 +302,7 @@ struct AddTokenView: View {
         )
         store.addToken(token)
         Task { await iconFetcher.fetchIcon(for: token.issuer, account: token.account) }
-        dismiss()
+        withAnimation { addedToken = token }
     }
 
     private func handleScannedURI(_ uri: String) {
@@ -277,6 +310,138 @@ struct AddTokenView: View {
         guard let token = OTPAuthParser.parse(uri: trimmed) else { return }
         store.addToken(token)
         Task { await iconFetcher.fetchIcon(for: token.issuer, account: token.account) }
-        dismiss()
+        withAnimation { addedToken = token }
+    }
+}
+
+// MARK: - Token Added Confirmation
+
+private struct TokenAddedConfirmationView: View {
+    let token: OTPToken
+    let iconFetcher: ServiceIconFetcher
+
+    @State private var currentCode: String = ""
+    @State private var progress: Double = 0
+    @State private var remainingSeconds: Int = 0
+    @State private var timer: Timer?
+    @State private var copied = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.green)
+
+            VStack(spacing: 6) {
+                Text(token.issuer.isEmpty ? "Unknown" : token.issuer)
+                    .font(.loraTitle)
+
+                if !token.account.isEmpty {
+                    Text(token.account)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(spacing: 8) {
+                Text("Your verification code")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Text(OTPGenerator.formatCode(currentCode))
+                    .font(.system(size: 40, weight: .bold, design: .monospaced))
+                    .contentTransition(.numericText())
+
+                if token.type == .totp {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            Circle()
+                                .stroke(progressColor.opacity(0.2), lineWidth: 3)
+                                .frame(width: 24, height: 24)
+                            Circle()
+                                .trim(from: 0, to: max(0, 1 - progress))
+                                .stroke(progressColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                                .frame(width: 24, height: 24)
+                                .animation(.linear(duration: 0.5), value: progress)
+                            Text("\(remainingSeconds)")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(progressColor)
+                        }
+                        Text("seconds remaining")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity)
+            .themedSecondaryBackground()
+            .clipShape(.rect(cornerRadius: 16))
+            .padding(.horizontal, 24)
+
+            Button {
+                UIPasteboard.general.string = currentCode
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+            } label: {
+                Label(copied ? "Copied!" : "Copy Code", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.accent)
+            .padding(.horizontal, 24)
+            .sensoryFeedback(.selection, trigger: copied)
+
+            Text("Enter this code on the website to complete setup.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+        }
+        .onAppear { startTimer() }
+        .onDisappear { stopTimer() }
+    }
+
+    private var progressColor: Color {
+        if progress > 0.8 { return .red }
+        if progress > 0.6 { return .orange }
+        return .accent
+    }
+
+    private func startTimer() {
+        updateCode()
+        updateProgress()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in
+                updateProgress()
+                let newCode = OTPGenerator.generate(for: token)
+                if newCode != currentCode {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        currentCode = newCode
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func updateCode() {
+        currentCode = OTPGenerator.generate(for: token)
+    }
+
+    private func updateProgress() {
+        progress = OTPGenerator.progress(for: token.period)
+        remainingSeconds = Int(OTPGenerator.remainingSeconds(for: token.period))
     }
 }

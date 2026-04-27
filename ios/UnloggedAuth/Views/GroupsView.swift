@@ -41,8 +41,8 @@ struct GroupsView: View {
                     Button {
                         showAddGroup = true
                     } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
+                        Image(systemName: "plus")
+                            .font(.subheadline)
                     }
                 }
             }

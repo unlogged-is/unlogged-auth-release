@@ -70,3 +70,13 @@ nonisolated struct OTPToken: Codable, Identifiable, Sendable, Hashable {
         self.updatedAt = updatedAt
     }
 }
+
+nonisolated struct TrashedToken: Codable, Identifiable, Sendable {
+    var id: UUID { token.id }
+    var token: OTPToken
+    var deletedAt: Date
+
+    var daysInTrash: Int {
+        Calendar.current.dateComponents([.day], from: deletedAt, to: Date()).day ?? 0
+    }
+}
