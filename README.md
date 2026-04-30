@@ -6,6 +6,8 @@
 [![Platform: iOS](https://img.shields.io/badge/Platform-iOS-lightgrey.svg)](https://developer.apple.com/ios/)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](https://testflight.apple.com/join/U5Dbbg3g)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q5Q81VPRAG)
+
 ---
 
 ## What is unlogged Auth?
