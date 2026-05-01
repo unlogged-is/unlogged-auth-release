@@ -130,6 +130,13 @@ struct UnloggedAuthApp: App {
             .task {
                 iconFetcher.fetchIcons(for: store.tokens)
                 PrivacyScreen.isEnabled = store.settings.lockMethod != .none
+                store.onTokensChanged = {
+                    if store.settings.autoBackupEnabled,
+                       let password = authService.getBackupPassword() {
+                        BackupService.performAutoBackup(store: store, password: password)
+                    }
+                }
+                performDailyBackupIfNeeded()
             }
             .onChange(of: store.settings.lockMethod) { _, newValue in
                 PrivacyScreen.isEnabled = newValue != .none
@@ -153,5 +160,13 @@ struct UnloggedAuthApp: App {
                 }
             }
         }
+    }
+
+    private func performDailyBackupIfNeeded() {
+        guard store.settings.autoBackupEnabled,
+              let password = authService.getBackupPassword() else { return }
+        let lastBackup = store.settings.lastBackupDate ?? .distantPast
+        guard Date().timeIntervalSince(lastBackup) > 86400 else { return }
+        BackupService.performAutoBackup(store: store, password: password)
     }
 }

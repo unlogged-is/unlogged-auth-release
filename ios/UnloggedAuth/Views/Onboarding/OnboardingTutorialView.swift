@@ -25,6 +25,7 @@ struct OnboardingTutorialView: View {
                     tutorialStep(number: 3, icon: "folder.fill", text: "Organize tokens into groups for easy access")
                     tutorialStep(number: 4, icon: "gearshape.fill", text: "Visit Settings to manage backups and security")
                 }
+                .frame(maxWidth: 440)
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 20)
             }
@@ -41,9 +42,12 @@ struct OnboardingTutorialView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.accent)
+            .frame(maxWidth: 400)
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             withAnimation(.spring(duration: 0.8)) {
                 appeared = true

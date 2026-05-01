@@ -3,6 +3,7 @@ import SwiftUI
 struct GroupsView: View {
     let store: TokenStore
     let iconFetcher: ServiceIconFetcher
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showAddGroup = false
     @State private var editingGroup: TokenGroup?
     @State private var newGroupName = ""
@@ -24,7 +25,7 @@ struct GroupsView: View {
                     }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 12) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
                             ForEach(store.groups) { group in
                                 groupCard(group)
                             }
@@ -163,7 +164,7 @@ struct GroupDetailView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
                         ForEach(groupTokens) { token in
                             TokenCardView(
                                 token: token,

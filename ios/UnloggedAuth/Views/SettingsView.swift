@@ -7,6 +7,7 @@ struct SettingsView: View {
     let iconFetcher: ServiceIconFetcher
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showChangePassword = false
     @State private var showImport = false
     @State private var showExportShare = false
@@ -63,6 +64,7 @@ struct SettingsView: View {
                 aboutSection
             }
             .scrollContentBackground(.hidden)
+            .safeAreaPadding(.horizontal, horizontalSizeClass == .regular ? 80 : 0)
             .themedBackground()
             .navigationTitle("Settings")
         }
@@ -81,7 +83,7 @@ struct SettingsView: View {
         .alert("Backup Complete", isPresented: $showBackupSuccess) {
             Button("OK") {}
         } message: {
-            Text("Your encrypted backup has been saved.")
+            Text("Your encrypted backup has been saved. Open the Files app and look under \"On My iPhone\" → \"Unlogged Auth\" to find it.")
         }
         .alert("Import Complete", isPresented: $showImportResult) {
             Button("OK") {}
@@ -450,10 +452,7 @@ struct SettingsView: View {
             }
 
             Button {
-                backupError = nil
-                backupPassword = ""
-                confirmBackupPassword = ""
-                showBackupPasswordPrompt = true
+                performBackupNow()
             } label: {
                 Label("Backup Now", systemImage: "arrow.clockwise")
             }
@@ -596,6 +595,22 @@ struct SettingsView: View {
         .listRowBackground(Color.themedSecondary(for: colorScheme))
     }
 
+    private func performBackupNow() {
+        if store.settings.hasSetBackupPassword, authService.hasBackupPassword(), let password = authService.getBackupPassword() {
+            if BackupService.performManualBackup(store: store, password: password) {
+                showBackupSuccess = true
+            } else {
+                exportFailureMessage = "Backup could not be completed. Please check your backup settings."
+                showExportFailure = true
+            }
+        } else {
+            backupError = nil
+            backupPassword = ""
+            confirmBackupPassword = ""
+            showBackupPasswordPrompt = true
+        }
+    }
+
     private func performEncryptedBackup() {
         guard !backupPassword.isEmpty else {
             backupError = "Password cannot be empty"
@@ -610,19 +625,17 @@ struct SettingsView: View {
             return
         }
 
-        do {
-            let result = try BackupService.createEncryptedBackup(store: store, password: backupPassword)
-            authService.setBackupPassword(backupPassword)
-            store.settings.hasSetBackupPassword = true
-            store.saveSettings()
-            backupFileData = result.data
-            backupFileName = result.filename
-            backupPassword = ""
-            confirmBackupPassword = ""
-            showBackupExporter = true
-        } catch {
-            backupError = error.localizedDescription
-            showBackupPasswordPrompt = true
+        authService.setBackupPassword(backupPassword)
+        store.settings.hasSetBackupPassword = true
+        store.saveSettings()
+        let password = backupPassword
+        backupPassword = ""
+        confirmBackupPassword = ""
+        if BackupService.performManualBackup(store: store, password: password) {
+            showBackupSuccess = true
+        } else {
+            exportFailureMessage = "Backup could not be saved. Please try again."
+            showExportFailure = true
         }
     }
 
@@ -669,8 +682,9 @@ struct SettingsView: View {
             store.settings.lastBackupDate = Date()
             store.saveSettings()
             showBackupSuccess = true
-        case .failure:
-            break
+        case .failure(let error):
+            exportFailureMessage = "Backup could not be saved.\n\n\(error.localizedDescription)"
+            showExportFailure = true
         }
         backupFileData = nil
     }

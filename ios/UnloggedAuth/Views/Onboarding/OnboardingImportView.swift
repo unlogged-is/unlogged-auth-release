@@ -85,6 +85,8 @@ struct OnboardingImportView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.json, .plainText, .data], allowsMultipleSelection: false) { result in
             handleFileImport(result)
         }

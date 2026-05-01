@@ -4,6 +4,7 @@ struct AutoBackupSettingsView: View {
     let store: TokenStore
     let authService: AuthenticationService
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showWebDAVConfig = false
     @State private var showSetPassword = false
     @State private var showChangePassword = false
@@ -11,6 +12,9 @@ struct AutoBackupSettingsView: View {
     @State private var confirmPassword = ""
     @State private var passwordError: String?
     @State private var pendingEnable = false
+    @State private var showBackupSuccess = false
+    @State private var showBackupFailure = false
+    @State private var backupFailureMessage = ""
 
     var body: some View {
         Form {
@@ -115,8 +119,14 @@ struct AutoBackupSettingsView: View {
                 }
                 .listRowBackground(Color.themedSecondary(for: colorScheme))
 
-                if let lastBackup = store.settings.lastBackupDate {
-                    Section {
+                Section {
+                    Button {
+                        performManualBackup()
+                    } label: {
+                        Label("Backup Now", systemImage: "arrow.clockwise")
+                    }
+
+                    if let lastBackup = store.settings.lastBackupDate {
                         HStack {
                             Label("Last Backup", systemImage: "clock")
                             Spacer()
@@ -124,11 +134,20 @@ struct AutoBackupSettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .listRowBackground(Color.themedSecondary(for: colorScheme))
+
+                    if store.settings.backupDestination == .local || store.settings.backupDestination == .icloud {
+                        Button {
+                            openBackupInFiles()
+                        } label: {
+                            Label("Show in Files", systemImage: "folder")
+                        }
+                    }
                 }
+                .listRowBackground(Color.themedSecondary(for: colorScheme))
             }
         }
         .scrollContentBackground(.hidden)
+        .safeAreaPadding(.horizontal, horizontalSizeClass == .regular ? 80 : 0)
         .themedBackground()
         .navigationTitle("Auto-Backup")
         .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +180,30 @@ struct AutoBackupSettingsView: View {
             }
         } message: {
             Text("Set a new password for future backups. Existing backups still use the old password.\(passwordError.map { "\n\n⚠️ \($0)" } ?? "")")
+        }
+        .alert("Backup Complete", isPresented: $showBackupSuccess) {
+            Button("OK") {}
+        } message: {
+            Text("Your encrypted backup has been saved.")
+        }
+        .alert("Backup Failed", isPresented: $showBackupFailure) {
+            Button("OK") {}
+        } message: {
+            Text(backupFailureMessage)
+        }
+    }
+
+    private func performManualBackup() {
+        guard let password = authService.getBackupPassword() else {
+            backupFailureMessage = "No backup password set. Please set one first."
+            showBackupFailure = true
+            return
+        }
+        if BackupService.performManualBackup(store: store, password: password) {
+            showBackupSuccess = true
+        } else {
+            backupFailureMessage = "Backup could not be completed. Please check your destination settings."
+            showBackupFailure = true
         }
     }
 
@@ -198,6 +241,20 @@ struct AutoBackupSettingsView: View {
         confirmPassword = ""
         passwordError = nil
         pendingEnable = false
+    }
+
+    private func openBackupInFiles() {
+        let url: URL?
+        if store.settings.backupDestination == .icloud {
+            url = BackupService.iCloudBackupDirectory()
+        } else {
+            url = BackupService.localBackupDirectory()
+        }
+        guard let folderURL = url else { return }
+        let shareddocs = "shareddocuments://" + folderURL.path
+        if let filesURL = URL(string: shareddocs) {
+            UIApplication.shared.open(filesURL)
+        }
     }
 
     private func destinationRow(icon: String, title: String, subtitle: String, destination: BackupDestination, color: Color) -> some View {

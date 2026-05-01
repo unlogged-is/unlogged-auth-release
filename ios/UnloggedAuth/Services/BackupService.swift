@@ -11,7 +11,7 @@ nonisolated struct ULAuthBackup: Codable, Sendable {
 }
 
 extension UTType {
-    static let ulauth = UTType(exportedAs: "app.unloggedauth.backup", conformingTo: .data)
+    static let ulauth = UTType(exportedAs: "app.rork.unloggedauth.backup", conformingTo: .data)
 }
 
 @MainActor
@@ -106,13 +106,47 @@ enum BackupService {
         }
     }
 
-    private static let backupFolderName = "unlogged Auth"
-    private static let backupFileName = "backup.ulauth"
+    static func performManualBackup(store: TokenStore, password: String) -> Bool {
+        if store.settings.autoBackupEnabled && store.settings.backupDestination != .none {
+            let previousDate = store.settings.lastBackupDate
+            performAutoBackup(store: store, password: password)
+            return store.settings.lastBackupDate != previousDate
+        } else {
+            return backupToLocal(store: store, password: password)
+        }
+    }
+
+    private static func backupToLocal(store: TokenStore, password: String) -> Bool {
+        guard let result = try? createEncryptedBackup(store: store, password: password) else { return false }
+        let backupDir = localBackupDirectory()
+        try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let fileURL = backupDir.appendingPathComponent(backupFileName)
+        do {
+            try result.data.write(to: fileURL, options: .atomic)
+            store.settings.lastBackupDate = Date()
+            store.saveSettings()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static let backupFolderName = "unlogged Auth"
+    static let backupFileName = "backup.ulauth"
+
+    static func localBackupDirectory() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent(backupFolderName)
+    }
+
+    static func iCloudBackupDirectory() -> URL? {
+        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
+        return containerURL.appendingPathComponent("Documents").appendingPathComponent(backupFolderName)
+    }
 
     private static func autoBackupToLocal(store: TokenStore, password: String) {
         guard let result = try? createEncryptedBackup(store: store, password: password) else { return }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let backupDir = docs.appendingPathComponent(backupFolderName)
+        let backupDir = localBackupDirectory()
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
         let fileURL = backupDir.appendingPathComponent(backupFileName)
         try? result.data.write(to: fileURL, options: .atomic)
@@ -122,11 +156,10 @@ enum BackupService {
 
     private static func autoBackupToiCloud(store: TokenStore, password: String) {
         guard let result = try? createEncryptedBackup(store: store, password: password),
-              let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
+              let backupDir = iCloudBackupDirectory() else {
             autoBackupToLocal(store: store, password: password)
             return
         }
-        let backupDir = containerURL.appendingPathComponent("Documents").appendingPathComponent(backupFolderName)
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
         let fileURL = backupDir.appendingPathComponent(backupFileName)
         try? result.data.write(to: fileURL, options: .atomic)

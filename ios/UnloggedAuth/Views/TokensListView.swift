@@ -9,7 +9,17 @@ struct TokensListView: View {
     @State private var tokenToMove: OTPToken?
     @State private var tokenToDelete: OTPToken?
     @State private var copiedTokenId: UUID?
+    @State private var showIPadSearch: Bool = false
     @FocusState private var isSearchFocused: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isRegularWidth: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass != .regular
+    }
 
     private var filteredTokens: [OTPToken] {
         let sorted: [OTPToken]
@@ -82,21 +92,18 @@ struct TokensListView: View {
                         .padding(.horizontal)
                         .padding(.top, 8)
                     }
-                    .searchable(text: $searchText, prompt: "Search tokens")
-                    .searchFocused($isSearchFocused)
+
+
                 }
             }
             .themedBackground()
             .navigationTitle("Tokens")
+            .if(isCompactWidth) { view in
+                view
+                    .searchable(text: $searchText, prompt: "Search tokens")
+                    .searchFocused($isSearchFocused)
+            }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showAddToken = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.subheadline)
-                    }
-                }
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Picker("Sort By", selection: Binding(
@@ -113,6 +120,53 @@ struct TokensListView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
+                            .font(.subheadline)
+                    }
+                }
+                if isRegularWidth {
+                    ToolbarItem(placement: .topBarLeading) {
+                        if showIPadSearch {
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                                TextField("Search", text: $searchText)
+                                    .focused($isSearchFocused)
+                                    .textFieldStyle(.plain)
+                                    .font(.body)
+                                Button {
+                                    searchText = ""
+                                    isSearchFocused = false
+                                    withAnimation(.snappy) { showIPadSearch = false }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                        .font(.subheadline)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .frame(width: 260)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                        } else {
+                            Button {
+                                withAnimation(.snappy) { showIPadSearch = true }
+                                isSearchFocused = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showAddToken = true
+                    } label: {
+                        Image(systemName: "plus")
                             .font(.subheadline)
                     }
                 }
@@ -173,6 +227,17 @@ struct TokensListView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             withAnimation { copiedTokenId = nil }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
         }
     }
 }

@@ -7,6 +7,7 @@ class TokenStore {
     var groups: [TokenGroup] = []
     var settings: AppSettingsData = AppSettingsData()
     var trashedTokens: [TrashedToken] = []
+    var onTokensChanged: (() -> Void)?
 
     private let tokensFileURL: URL
     private let groupsFileURL: URL
@@ -111,6 +112,7 @@ class TokenStore {
         newToken.sortOrder = tokens.count
         tokens.append(newToken)
         saveTokens()
+        onTokensChanged?()
     }
 
     func updateToken(_ token: OTPToken) {
@@ -128,11 +130,13 @@ class TokenStore {
         trashedTokens.append(trashed)
         saveTokens()
         saveTrash()
+        onTokensChanged?()
     }
 
     func deleteToken(id: UUID) {
         tokens.removeAll { $0.id == id }
         saveTokens()
+        onTokensChanged?()
     }
 
     func restoreToken(id: UUID) {
@@ -141,6 +145,7 @@ class TokenStore {
         tokens.append(restored)
         saveTrash()
         saveTokens()
+        onTokensChanged?()
     }
 
     func permanentlyDeleteTrashedToken(id: UUID) {
