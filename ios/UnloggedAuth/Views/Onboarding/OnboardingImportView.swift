@@ -30,7 +30,7 @@ struct OnboardingImportView: View {
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 60)
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
 
             ScrollView {
                 VStack(spacing: 10) {

@@ -41,7 +41,7 @@ struct TokensListView: View {
                     }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 12) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
                             ForEach(filteredTokens) { token in
                                 TokenCardView(
                                     token: token,

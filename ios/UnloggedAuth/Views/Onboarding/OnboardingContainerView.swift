@@ -42,7 +42,9 @@ struct OnboardingContainerView: View {
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 }
             }
+            .frame(maxWidth: 600)
         }
+        .themedBackground()
         .animation(.snappy, value: currentPage)
         .ignoresSafeArea()
     }
