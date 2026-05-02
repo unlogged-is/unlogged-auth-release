@@ -597,11 +597,13 @@ struct SettingsView: View {
 
     private func performBackupNow() {
         if store.settings.hasSetBackupPassword, authService.hasBackupPassword(), let password = authService.getBackupPassword() {
-            if BackupService.performManualBackup(store: store, password: password) {
-                showBackupSuccess = true
-            } else {
-                exportFailureMessage = "Backup could not be completed. Please check your backup settings."
-                showExportFailure = true
+            Task {
+                if let error = await BackupService.performManualBackup(store: store, password: password) {
+                    exportFailureMessage = error
+                    showExportFailure = true
+                } else {
+                    showBackupSuccess = true
+                }
             }
         } else {
             backupError = nil
@@ -631,11 +633,13 @@ struct SettingsView: View {
         let password = backupPassword
         backupPassword = ""
         confirmBackupPassword = ""
-        if BackupService.performManualBackup(store: store, password: password) {
-            showBackupSuccess = true
-        } else {
-            exportFailureMessage = "Backup could not be saved. Please try again."
-            showExportFailure = true
+        Task {
+            if let error = await BackupService.performManualBackup(store: store, password: password) {
+                exportFailureMessage = error
+                showExportFailure = true
+            } else {
+                showBackupSuccess = true
+            }
         }
     }
 

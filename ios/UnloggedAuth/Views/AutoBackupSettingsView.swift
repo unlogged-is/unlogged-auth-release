@@ -184,7 +184,13 @@ struct AutoBackupSettingsView: View {
         .alert("Backup Complete", isPresented: $showBackupSuccess) {
             Button("OK") {}
         } message: {
-            Text("Your encrypted backup has been saved.")
+            if store.settings.backupDestination == .icloud {
+                Text("Your encrypted backup has been saved to iCloud Drive.")
+            } else if store.settings.backupDestination == .webdav {
+                Text("Your encrypted backup has been uploaded to your WebDAV server.")
+            } else {
+                Text("Your encrypted backup has been saved to local storage. Look for \"unlogged Auth\" folder in Files → On My iPad/iPhone.")
+            }
         }
         .alert("Backup Failed", isPresented: $showBackupFailure) {
             Button("OK") {}
@@ -199,11 +205,13 @@ struct AutoBackupSettingsView: View {
             showBackupFailure = true
             return
         }
-        if BackupService.performManualBackup(store: store, password: password) {
-            showBackupSuccess = true
-        } else {
-            backupFailureMessage = "Backup could not be completed. Please check your destination settings."
-            showBackupFailure = true
+        Task {
+            if let error = await BackupService.performManualBackup(store: store, password: password) {
+                backupFailureMessage = error
+                showBackupFailure = true
+            } else {
+                showBackupSuccess = true
+            }
         }
     }
 
@@ -250,11 +258,10 @@ struct AutoBackupSettingsView: View {
         } else {
             url = BackupService.localBackupDirectory()
         }
-        guard let folderURL = url else { return }
-        let shareddocs = "shareddocuments://" + folderURL.path
-        if let filesURL = URL(string: shareddocs) {
-            UIApplication.shared.open(filesURL)
-        }
+        guard let folderURL = url,
+              let encodedPath = folderURL.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let filesURL = URL(string: "shareddocuments://" + encodedPath) else { return }
+        UIApplication.shared.open(filesURL)
     }
 
     private func destinationRow(icon: String, title: String, subtitle: String, destination: BackupDestination, color: Color) -> some View {
