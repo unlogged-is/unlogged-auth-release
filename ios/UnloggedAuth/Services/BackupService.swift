@@ -11,7 +11,7 @@ nonisolated struct ULAuthBackup: Codable, Sendable {
 }
 
 extension UTType {
-    static let ulauth = UTType(exportedAs: "app.unloggedauth.backup", conformingTo: .data)
+    static let ulauth = UTType(exportedAs: "app.rork.unloggedauth.backup", conformingTo: .data)
 }
 
 @MainActor
@@ -23,6 +23,9 @@ enum BackupService {
         case decryptionFailed
         case invalidPassword
         case invalidFormat
+        case writeFailed
+        case webdavFailed(Int)
+        case webdavNotConfigured
 
         var errorDescription: String? {
             switch self {
@@ -31,6 +34,9 @@ enum BackupService {
             case .decryptionFailed: return "Failed to decrypt backup"
             case .invalidPassword: return "Incorrect password"
             case .invalidFormat: return "Invalid backup file"
+            case .writeFailed: return "Failed to write backup file"
+            case .webdavFailed(let code): return "WebDAV server returned error \(code)"
+            case .webdavNotConfigured: return "WebDAV server is not configured"
             }
         }
     }
@@ -74,7 +80,6 @@ enum BackupService {
             throw BackupError.invalidFormat
         }
 
-        // v1 used HKDF (single-pass), v2 uses iterated HMAC-SHA256 (100K iterations)
         let key: SymmetricKey
         if backup.version >= 2 {
             key = deriveKeyV2(from: password, salt: backup.salt)
@@ -91,6 +96,8 @@ enum BackupService {
         }
     }
 
+    // MARK: - Auto Backup (fire-and-forget, called on token changes and app background)
+
     static func performAutoBackup(store: TokenStore, password: String) {
         guard store.settings.autoBackupEnabled else { return }
 
@@ -106,44 +113,132 @@ enum BackupService {
         }
     }
 
-    private static let backupFolderName = "unlogged Auth"
-    private static let backupFileName = "backup.ulauth"
+    // MARK: - Manual Backup (awaitable, returns nil on success or error message)
+
+    static func performManualBackup(store: TokenStore, password: String) async -> String? {
+        let destination: BackupDestination
+        if store.settings.autoBackupEnabled && store.settings.backupDestination != .none {
+            destination = store.settings.backupDestination
+        } else {
+            destination = .local
+        }
+
+        do {
+            let result = try createEncryptedBackup(store: store, password: password)
+
+            switch destination {
+            case .none:
+                return "No backup destination selected."
+            case .local:
+                let backupDir = localBackupDirectory()
+                try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+                let fileURL = backupDir.appendingPathComponent(backupFileName)
+                try result.data.write(to: fileURL, options: .atomic)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    return "File write succeeded but file not found at: \(fileURL.path)"
+                }
+            case .icloud:
+                guard let backupDir = iCloudBackupDirectory() else {
+                    return "iCloud Drive is not available. Check that iCloud is enabled in Settings."
+                }
+                try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+                let fileURL = backupDir.appendingPathComponent(backupFileName)
+                try result.data.write(to: fileURL, options: .atomic)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    return "File write succeeded but file not found at: \(fileURL.path)"
+                }
+            case .webdav:
+                let config = store.settings.webdavConfig
+                guard !config.serverURL.isEmpty else {
+                    return "WebDAV server URL is not configured."
+                }
+                let baseURL = config.serverURL.hasSuffix("/") ? config.serverURL : config.serverURL + "/"
+                let path = config.path.hasPrefix("/") ? String(config.path.dropFirst()) : config.path
+                let fullPath = path.hasSuffix("/") ? path : path + "/"
+                guard let uploadURL = URL(string: baseURL + fullPath + backupFileName) else {
+                    return "Invalid WebDAV URL: \(baseURL + fullPath + backupFileName)"
+                }
+                var request = URLRequest(url: uploadURL)
+                request.httpMethod = "PUT"
+                request.httpBody = result.data
+                let credentials = "\(config.username):\(config.password)"
+                if let credData = credentials.data(using: .utf8) {
+                    request.setValue("Basic \(credData.base64EncodedString())", forHTTPHeaderField: "Authorization")
+                }
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    return "WebDAV server returned error \(code)."
+                }
+            }
+
+            store.settings.lastBackupDate = Date()
+            store.saveSettings()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: - Local Backup
+
+    private static func backupToLocal(store: TokenStore, password: String) -> Bool {
+        guard let result = try? createEncryptedBackup(store: store, password: password) else { return false }
+        let backupDir = localBackupDirectory()
+        do {
+            try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+            let fileURL = backupDir.appendingPathComponent(backupFileName)
+            try result.data.write(to: fileURL, options: .atomic)
+            store.settings.lastBackupDate = Date()
+            store.saveSettings()
+            return true
+        } catch {
+            return false
+        }
+    }
 
     private static func autoBackupToLocal(store: TokenStore, password: String) {
-        guard let result = try? createEncryptedBackup(store: store, password: password) else { return }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let backupDir = docs.appendingPathComponent(backupFolderName)
-        try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
-        let fileURL = backupDir.appendingPathComponent(backupFileName)
-        try? result.data.write(to: fileURL, options: .atomic)
-        store.settings.lastBackupDate = Date()
-        store.saveSettings()
+        _ = backupToLocal(store: store, password: password)
+    }
+
+    // MARK: - iCloud Backup
+
+    private static func backupToiCloud(store: TokenStore, password: String) -> Bool {
+        guard let result = try? createEncryptedBackup(store: store, password: password),
+              let backupDir = iCloudBackupDirectory() else {
+            return false
+        }
+        do {
+            try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+            let fileURL = backupDir.appendingPathComponent(backupFileName)
+            try result.data.write(to: fileURL, options: .atomic)
+            store.settings.lastBackupDate = Date()
+            store.saveSettings()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func autoBackupToiCloud(store: TokenStore, password: String) {
-        guard let result = try? createEncryptedBackup(store: store, password: password),
-              let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
-            autoBackupToLocal(store: store, password: password)
-            return
+        if !backupToiCloud(store: store, password: password) {
+            _ = backupToLocal(store: store, password: password)
         }
-        let backupDir = containerURL.appendingPathComponent("Documents").appendingPathComponent(backupFolderName)
-        try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
-        let fileURL = backupDir.appendingPathComponent(backupFileName)
-        try? result.data.write(to: fileURL, options: .atomic)
-        store.settings.lastBackupDate = Date()
-        store.saveSettings()
     }
 
-    private static func autoBackupToWebDAV(store: TokenStore, password: String) async {
-        guard let result = try? createEncryptedBackup(store: store, password: password) else { return }
+    // MARK: - WebDAV Backup
+
+    private static func backupToWebDAV(store: TokenStore, password: String) async -> Bool {
+        guard let result = try? createEncryptedBackup(store: store, password: password) else { return false }
         let config = store.settings.webdavConfig
-        guard !config.serverURL.isEmpty else { return }
+        guard !config.serverURL.isEmpty else { return false }
 
         let baseURL = config.serverURL.hasSuffix("/") ? config.serverURL : config.serverURL + "/"
         let path = config.path.hasPrefix("/") ? String(config.path.dropFirst()) : config.path
         let fullPath = path.hasSuffix("/") ? path : path + "/"
 
-        guard let uploadURL = URL(string: baseURL + fullPath + backupFileName) else { return }
+        guard let uploadURL = URL(string: baseURL + fullPath + backupFileName) else { return false }
         var request = URLRequest(url: uploadURL)
         request.httpMethod = "PUT"
         request.httpBody = result.data
@@ -153,10 +248,40 @@ enum BackupService {
             request.setValue("Basic \(credData.base64EncodedString())", forHTTPHeaderField: "Authorization")
         }
 
-        _ = try? await URLSession.shared.data(for: request)
-        store.settings.lastBackupDate = Date()
-        store.saveSettings()
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return false
+            }
+            store.settings.lastBackupDate = Date()
+            store.saveSettings()
+            return true
+        } catch {
+            return false
+        }
     }
+
+    private static func autoBackupToWebDAV(store: TokenStore, password: String) async {
+        _ = await backupToWebDAV(store: store, password: password)
+    }
+
+    // MARK: - Paths
+
+    static let backupFolderName = "unlogged Auth"
+    static let backupFileName = "backup.ulauth"
+
+    static func localBackupDirectory() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent(backupFolderName)
+    }
+
+    static func iCloudBackupDirectory() -> URL? {
+        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
+        return containerURL.appendingPathComponent("Documents").appendingPathComponent(backupFolderName)
+    }
+
+    // MARK: - Key Derivation
 
     private static func generateSalt() -> Data {
         var salt = Data(count: 32)
@@ -164,7 +289,6 @@ enum BackupService {
         return salt
     }
 
-    /// Legacy v1 key derivation (HKDF, single-pass — kept for restoring old backups)
     private static func deriveKeyV1(from password: String, salt: Data) -> SymmetricKey {
         let passwordData = Data(password.utf8)
         let derived = HKDF<SHA256>.deriveKey(
@@ -175,7 +299,6 @@ enum BackupService {
         return derived
     }
 
-    /// v2 key derivation: 100K iterations of HMAC-SHA256 for brute-force resistance
     private static func deriveKeyV2(from password: String, salt: Data) -> SymmetricKey {
         let passwordData = Data(password.utf8)
         let key = SymmetricKey(data: salt)
@@ -186,6 +309,4 @@ enum BackupService {
         }
         return SymmetricKey(data: result)
     }
-
-
 }

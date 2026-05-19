@@ -52,6 +52,7 @@ struct OnboardingWelcomeView: View {
                 featureRow(icon: "lock.fill", title: "Encrypted Storage", subtitle: "AES-256-GCM encryption with biometric unlock", color: .purple)
             }
             .padding(.horizontal, 24)
+            .frame(maxWidth: 440)
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 30)
 
@@ -67,9 +68,12 @@ struct OnboardingWelcomeView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.accent)
+            .frame(maxWidth: 400)
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             withAnimation(.spring(duration: 0.8)) {
                 appeared = true

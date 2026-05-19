@@ -76,6 +76,12 @@ enum AppearanceSetup {
         UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
         UINavigationBar.appearance().compactAppearance = navAppearance
         UINavigationBar.appearance().tintColor = accentColor
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            var layoutMargins = UINavigationBar.appearance().layoutMargins
+            layoutMargins.top = 16
+            UINavigationBar.appearance().layoutMargins = layoutMargins
+        }
     }
 
     static func configureGlobalAppearance() {

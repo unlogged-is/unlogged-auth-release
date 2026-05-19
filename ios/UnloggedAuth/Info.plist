@@ -17,6 +17,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Lora-Regular.ttf</string>

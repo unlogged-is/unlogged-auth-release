@@ -4,7 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Platform: iOS](https://img.shields.io/badge/Platform-iOS-lightgrey.svg)](https://developer.apple.com/ios/)
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](https://testflight.apple.com/join/U5Dbbg3g)
+[![Status: Released](https://img.shields.io/badge/Status-Released-green.svg)]([https://apps.apple.com/your-app-link](https://apps.apple.com/us/app/unlogged-auth/id6762311929))
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q5Q81VPRAG)
 
@@ -74,6 +74,6 @@ See [LICENSE.md](./LICENSE.md) for full terms.
 ## Links
 
 - **Website:** [unlogged.is](https://unlogged.is)
-- **App Store:** Coming soon
+- **App Store:** [Download Here](https://apps.apple.com/us/app/unlogged-auth/id6762311929)
 - **License:** [GPL-3.0 with App Store exception](./LICENSE.md)
 - **EULA:** [End User License Agreement](./EULA.md)

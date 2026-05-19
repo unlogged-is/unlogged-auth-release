@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import PhotosUI
 
 struct AddTokenView: View {
     @Environment(\.dismiss) private var dismiss
@@ -21,6 +22,8 @@ struct AddTokenView: View {
     @State private var showIconPicker = false
     @State private var iconRefreshId = UUID()
     @State private var addedToken: OTPToken?
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showPhotoScanError = false
 
     enum AddMode: String, CaseIterable {
         case scan = "Scan QR"
@@ -67,6 +70,11 @@ struct AddTokenView: View {
                             .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
+            }
+            .alert("No QR Code Found", isPresented: $showPhotoScanError) {
+                Button("OK") {}
+            } message: {
+                Text("No valid otpauth:// QR code was found in the selected photo.")
             }
             .alert("Invalid Secret", isPresented: $showInvalidSecret) {
                 Button("OK") {}
@@ -140,6 +148,28 @@ struct AddTokenView: View {
             Text("Point your camera at a QR code")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Label("Scan from Photo", systemImage: "photo")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+            .onChange(of: selectedPhoto) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data),
+                       let uri = detectQRCode(in: image) {
+                        handleScannedURI(uri)
+                    } else {
+                        showPhotoScanError = true
+                    }
+                    selectedPhoto = nil
+                }
+            }
 
             Spacer()
 
@@ -303,6 +333,13 @@ struct AddTokenView: View {
         store.addToken(token)
         Task { await iconFetcher.fetchIcon(for: token.issuer, account: token.account) }
         withAnimation { addedToken = token }
+    }
+
+    private func detectQRCode(in image: UIImage) -> String? {
+        guard let ciImage = CIImage(image: image) else { return nil }
+        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
+        let features = detector?.features(in: ciImage) as? [CIQRCodeFeature] ?? []
+        return features.first(where: { $0.messageString?.hasPrefix("otpauth://") == true })?.messageString
     }
 
     private func handleScannedURI(_ uri: String) {

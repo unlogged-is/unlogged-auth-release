@@ -30,7 +30,7 @@ struct OnboardingImportView: View {
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 60)
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
 
             ScrollView {
                 VStack(spacing: 10) {
@@ -85,6 +85,8 @@ struct OnboardingImportView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.json, .plainText, .data], allowsMultipleSelection: false) { result in
             handleFileImport(result)
         }

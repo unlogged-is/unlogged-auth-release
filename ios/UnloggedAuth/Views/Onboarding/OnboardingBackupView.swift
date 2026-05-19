@@ -83,6 +83,8 @@ struct OnboardingBackupView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert("Set Backup Password", isPresented: $showPasswordPrompt) {
             SecureField("Password", text: $backupPassword)
             SecureField("Confirm Password", text: $confirmPassword)

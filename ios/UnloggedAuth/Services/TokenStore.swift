@@ -7,6 +7,7 @@ class TokenStore {
     var groups: [TokenGroup] = []
     var settings: AppSettingsData = AppSettingsData()
     var trashedTokens: [TrashedToken] = []
+    var onTokensChanged: (() -> Void)?
 
     private let tokensFileURL: URL
     private let groupsFileURL: URL
@@ -14,12 +15,35 @@ class TokenStore {
     private let trashFileURL: URL
 
     init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        tokensFileURL = docs.appendingPathComponent("tokens.encrypted")
-        groupsFileURL = docs.appendingPathComponent("groups.json")
-        settingsFileURL = docs.appendingPathComponent("settings.json")
-        trashFileURL = docs.appendingPathComponent("trash.encrypted")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+
+        tokensFileURL = appSupport.appendingPathComponent("tokens.encrypted")
+        groupsFileURL = appSupport.appendingPathComponent("groups.json")
+        settingsFileURL = appSupport.appendingPathComponent("settings.json")
+        trashFileURL = appSupport.appendingPathComponent("trash.encrypted")
+
+        migrateFromDocuments()
         loadAll()
+    }
+
+    private func migrateFromDocuments() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let filesToMigrate = ["tokens.encrypted", "groups.json", "settings.json", "trash.encrypted"]
+        for filename in filesToMigrate {
+            let oldURL = docs.appendingPathComponent(filename)
+            let newURL: URL
+            switch filename {
+            case "tokens.encrypted": newURL = tokensFileURL
+            case "groups.json": newURL = groupsFileURL
+            case "settings.json": newURL = settingsFileURL
+            case "trash.encrypted": newURL = trashFileURL
+            default: continue
+            }
+            if FileManager.default.fileExists(atPath: oldURL.path) && !FileManager.default.fileExists(atPath: newURL.path) {
+                try? FileManager.default.moveItem(at: oldURL, to: newURL)
+            }
+        }
     }
 
     func loadAll() {
@@ -111,6 +135,7 @@ class TokenStore {
         newToken.sortOrder = tokens.count
         tokens.append(newToken)
         saveTokens()
+        onTokensChanged?()
     }
 
     func updateToken(_ token: OTPToken) {
@@ -128,11 +153,13 @@ class TokenStore {
         trashedTokens.append(trashed)
         saveTokens()
         saveTrash()
+        onTokensChanged?()
     }
 
     func deleteToken(id: UUID) {
         tokens.removeAll { $0.id == id }
         saveTokens()
+        onTokensChanged?()
     }
 
     func restoreToken(id: UUID) {
@@ -141,6 +168,7 @@ class TokenStore {
         tokens.append(restored)
         saveTrash()
         saveTokens()
+        onTokensChanged?()
     }
 
     func permanentlyDeleteTrashedToken(id: UUID) {

@@ -102,6 +102,8 @@ struct OnboardingSecurityView: View {
             .padding(.bottom, 40)
             .disabled(!canContinue)
         }
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showPinSetup) {
             NavigationStack {
                 PinSetupView { pin in
