@@ -81,20 +81,20 @@ class AuthenticationService {
         }
     }
 
-    func authenticateWithPassword(_ input: String) -> Bool {
+    func authenticateWithPassword(_ input: String) async -> Bool {
         guard !isLockedOut else { return false }
         guard let stored = KeychainService.loadString(key: passwordKeychainKey),
               let salt = KeychainService.load(key: passwordSaltKeychainKey) else {
             // Legacy: try plaintext comparison for passwords set before hashing
             if let stored = KeychainService.loadString(key: passwordKeychainKey), input == stored {
                 // Migrate to hashed + wrapped storage
-                setPassword(input)
+                await setPassword(input)
                 authSuccess()
                 return true
             }
             return false
         }
-        let derived = Self.deriveFromCredential(input, salt: salt)
+        let derived = await Self.deriveFromCredentialAsync(input, salt: salt)
         let hash = Self.verifyHashFromDerived(derived)
         if hash == stored {
             // Unwrap the DEK
@@ -109,9 +109,9 @@ class AuthenticationService {
         return false
     }
 
-    func setPassword(_ password: String) {
+    func setPassword(_ password: String) async {
         let salt = Self.generateSalt()
-        let derived = Self.deriveFromCredential(password, salt: salt)
+        let derived = await Self.deriveFromCredentialAsync(password, salt: salt)
         let hash = Self.verifyHashFromDerived(derived)
         _ = KeychainService.saveString(key: passwordKeychainKey, value: hash)
         _ = KeychainService.save(key: passwordSaltKeychainKey, data: salt)
@@ -133,20 +133,20 @@ class AuthenticationService {
 
     // MARK: - PIN
 
-    func authenticateWithPin(_ input: String) -> Bool {
+    func authenticateWithPin(_ input: String) async -> Bool {
         guard !isLockedOut else { return false }
         guard let stored = KeychainService.loadString(key: pinKeychainKey),
               let salt = KeychainService.load(key: pinSaltKeychainKey) else {
             // Legacy: try plaintext comparison for PINs set before hashing
             if let stored = KeychainService.loadString(key: pinKeychainKey), input == stored {
                 // Migrate to hashed + wrapped storage
-                setPin(input)
+                await setPin(input)
                 authSuccess()
                 return true
             }
             return false
         }
-        let derived = Self.deriveFromCredential(input, salt: salt)
+        let derived = await Self.deriveFromCredentialAsync(input, salt: salt)
         let hash = Self.verifyHashFromDerived(derived)
         if hash == stored {
             // Unwrap the DEK
@@ -161,9 +161,9 @@ class AuthenticationService {
         return false
     }
 
-    func setPin(_ pin: String) {
+    func setPin(_ pin: String) async {
         let salt = Self.generateSalt()
-        let derived = Self.deriveFromCredential(pin, salt: salt)
+        let derived = await Self.deriveFromCredentialAsync(pin, salt: salt)
         let hash = Self.verifyHashFromDerived(derived)
         _ = KeychainService.saveString(key: pinKeychainKey, value: hash)
         _ = KeychainService.save(key: pinSaltKeychainKey, data: salt)
@@ -306,15 +306,18 @@ class AuthenticationService {
 
     /// Expensive key derivation: 100K iterations of HMAC-SHA256.
     /// Called once per auth attempt, then split into verify hash and KEK.
-    private static func deriveFromCredential(_ credential: String, salt: Data) -> Data {
-        guard let credentialData = credential.data(using: .utf8) else { return Data() }
-        let key = SymmetricKey(data: salt)
-        var result = credentialData
-        for _ in 0..<100_000 {
-            let mac = HMAC<SHA256>.authenticationCode(for: result, using: key)
-            result = Data(mac)
-        }
-        return result
+    /// Runs on a detached Task to avoid blocking the main thread.
+    nonisolated private static func deriveFromCredentialAsync(_ credential: String, salt: Data) async -> Data {
+        await Task.detached(priority: .userInitiated) {
+            guard let credentialData = credential.data(using: .utf8) else { return Data() }
+            let key = SymmetricKey(data: salt)
+            var result = credentialData
+            for _ in 0..<100_000 {
+                let mac = HMAC<SHA256>.authenticationCode(for: result, using: key)
+                result = Data(mac)
+            }
+            return result
+        }.value
     }
 
     /// Derive a verification hash from the base derivation (for credential comparison)

@@ -251,25 +251,31 @@ struct LockScreenView: View {
     }
 
     private func attemptPinUnlock(_ pin: String) {
-        if authService.authenticateWithPin(pin) {
-            pinError = false
-        } else {
-            pinError = true
-            // Reset the error after animation completes so it can trigger again
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task {
+            let success = await authService.authenticateWithPin(pin)
+            if success {
                 pinError = false
-                pinEntryId = UUID()
+            } else {
+                pinError = true
+                // Reset the error after animation completes so it can trigger again
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    pinError = false
+                    pinEntryId = UUID()
+                }
             }
         }
     }
 
     private func attemptPasswordUnlock() {
-        if authService.authenticateWithPassword(password) {
-            password = ""
-        } else {
-            showError = true
-            password = ""
-            shakeAndReset()
+        Task {
+            let success = await authService.authenticateWithPassword(password)
+            if success {
+                password = ""
+            } else {
+                showError = true
+                password = ""
+                shakeAndReset()
+            }
         }
     }
 

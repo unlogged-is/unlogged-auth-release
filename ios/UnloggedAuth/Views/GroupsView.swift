@@ -9,6 +9,9 @@ struct GroupsView: View {
     @State private var newGroupName = ""
     @State private var selectedGroup: TokenGroup?
     @State private var groupToDelete: TokenGroup?
+    
+    // iPhone Duo optimizations
+    private let deviceCapabilities = DeviceCapabilities.shared
 
     var body: some View {
         NavigationStack {
@@ -25,12 +28,15 @@ struct GroupsView: View {
                     }
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
+                        LazyVGrid(
+                            columns: deviceCapabilities.optimizedGridColumns(spacing: deviceCapabilities.isInnerDisplay ? 16 : 12),
+                            spacing: deviceCapabilities.isInnerDisplay ? 16 : 12
+                        ) {
                             ForEach(store.groups) { group in
                                 groupCard(group)
                             }
                         }
-                        .padding(.horizontal)
+                        .deviceAdaptivePadding()
                         .padding(.top, 8)
                     }
                 }
@@ -149,6 +155,9 @@ struct GroupDetailView: View {
     let group: TokenGroup
     let iconFetcher: ServiceIconFetcher
     @State private var copiedTokenId: UUID?
+    
+    // iPhone Duo optimizations
+    private let deviceCapabilities = DeviceCapabilities.shared
 
     private var groupTokens: [OTPToken] {
         store.tokensInGroup(group.id)
@@ -164,7 +173,10 @@ struct GroupDetailView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
+                    LazyVGrid(
+                        columns: deviceCapabilities.optimizedGridColumns(spacing: deviceCapabilities.isInnerDisplay ? 16 : 12),
+                        spacing: deviceCapabilities.isInnerDisplay ? 16 : 12
+                    ) {
                         ForEach(groupTokens) { token in
                             TokenCardView(
                                 token: token,
@@ -179,7 +191,7 @@ struct GroupDetailView: View {
                             )
                         }
                     }
-                    .padding(.horizontal)
+                    .deviceAdaptivePadding()
                     .padding(.top, 8)
                 }
             }

@@ -107,11 +107,13 @@ struct OnboardingSecurityView: View {
         .sheet(isPresented: $showPinSetup) {
             NavigationStack {
                 PinSetupView { pin in
-                    authService.setPin(pin)
-                    store.settings.lockMethod = .pin
-                    store.saveSettings()
-                    showPinSetup = false
-                    onContinue()
+                    Task {
+                        await authService.setPin(pin)
+                        store.settings.lockMethod = .pin
+                        store.saveSettings()
+                        showPinSetup = false
+                        onContinue()
+                    }
                 } onCancel: {
                     showPinSetup = false
                 }
@@ -254,10 +256,12 @@ struct OnboardingSecurityView: View {
             guard password == confirmPassword else {
                 return
             }
-            authService.setPassword(password)
-            store.settings.lockMethod = .password
-            store.saveSettings()
-            onContinue()
+            Task {
+                await authService.setPassword(password)
+                store.settings.lockMethod = .password
+                store.saveSettings()
+                onContinue()
+            }
         case .none:
             store.settings.lockMethod = .none
             store.saveSettings()

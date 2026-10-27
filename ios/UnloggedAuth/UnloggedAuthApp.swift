@@ -122,6 +122,7 @@ struct UnloggedAuthApp: App {
                     )
                     .opacity(authService.isUnlocked ? 0 : 1)
                     .allowsHitTesting(!authService.isUnlocked)
+                    .animation(.easeOut(duration: 0.2), value: authService.isUnlocked)
                 }
             }
             .tint(Color("AccentColor"))
@@ -143,8 +144,8 @@ struct UnloggedAuthApp: App {
             }
             .onChange(of: authService.isUnlocked) { _, unlocked in
                 if unlocked && EncryptionService.hasCachedKey {
-                    // Reload tokens after successful authentication (DEK now available)
-                    store.loadAll()
+                    // Reload only credential-encrypted data (tokens + trash) off main thread
+                    Task { await store.loadEncryptedDataAfterUnlock() }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in

@@ -1,8 +1,10 @@
 import SwiftUI
+import CoreImage.CIFilterBuiltins
 
 struct EditTokenView: View {
     @Environment(\.dismiss) private var dismiss
     let store: TokenStore
+    let authService: AuthenticationService
     let token: OTPToken
     let iconFetcher: ServiceIconFetcher
 
@@ -12,6 +14,14 @@ struct EditTokenView: View {
     @State private var iconColor: String
     @State private var showIconPicker = false
     @State private var iconRefreshId = UUID()
+
+    @State private var isSecretRevealed = false
+    @State private var showSecretCopied = false
+    @State private var showPinAuth = false
+    @State private var showPasswordAuth = false
+    @State private var authPasswordInput = ""
+    @State private var authPasswordError = false
+    @State private var authShakeOffset: CGFloat = 0
 
     private let availableSymbols = [
         "key.fill", "lock.fill", "shield.fill", "globe", "envelope.fill",
@@ -27,8 +37,9 @@ struct EditTokenView: View {
         ("purple", "Purple"), ("pink", "Pink"), ("teal", "Teal")
     ]
 
-    init(store: TokenStore, token: OTPToken, iconFetcher: ServiceIconFetcher) {
+    init(store: TokenStore, authService: AuthenticationService, token: OTPToken, iconFetcher: ServiceIconFetcher) {
         self.store = store
+        self.authService = authService
         self.token = token
         self.iconFetcher = iconFetcher
         _issuer = State(initialValue: token.issuer)
@@ -45,14 +56,7 @@ struct EditTokenView: View {
                     TextField("Account", text: $account)
                 }
 
-                Section("Token Details") {
-                    LabeledContent("Type", value: token.type == .totp ? "TOTP" : "HOTP")
-                    LabeledContent("Algorithm", value: token.algorithm.displayName)
-                    LabeledContent("Digits", value: "\(token.digits)")
-                    if token.type == .totp {
-                        LabeledContent("Period", value: "\(token.period)s")
-                    }
-                }
+                tokenDetailsSection
 
                 Section("Service Icon") {
                     HStack(spacing: 14) {
@@ -122,6 +126,238 @@ struct EditTokenView: View {
                     issuer: issuer.isEmpty ? token.issuer : issuer
                 ) {
                     iconRefreshId = UUID()
+                }
+            }
+            .sheet(isPresented: $showPinAuth) {
+                pinAuthSheet
+            }
+            .sheet(isPresented: $showPasswordAuth) {
+                passwordAuthSheet
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tokenDetailsSection: some View {
+        Section {
+            LabeledContent("Type", value: token.type == .totp ? "TOTP" : "HOTP")
+            LabeledContent("Algorithm", value: token.algorithm.displayName)
+            LabeledContent("Digits", value: "\(token.digits)")
+            if token.type == .totp {
+                LabeledContent("Period", value: "\(token.period)s")
+            }
+
+            if isSecretRevealed {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Secret Key")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(token.secret)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 4)
+
+                if let qr = qrCodeImage {
+                    VStack(spacing: 8) {
+                        Image(uiImage: qr)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 240)
+                            .padding(8)
+                            .background(Color.white)
+                            .clipShape(.rect(cornerRadius: 8))
+                        Text("Scan to add this token to another authenticator")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                }
+
+                Button {
+                    UIPasteboard.general.string = token.secret
+                    withAnimation { showSecretCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showSecretCopied = false }
+                    }
+                } label: {
+                    Label(showSecretCopied ? "Copied!" : "Copy Secret", systemImage: showSecretCopied ? "checkmark" : "doc.on.doc")
+                }
+
+                Button(role: .destructive) {
+                    withAnimation { isSecretRevealed = false }
+                } label: {
+                    Label("Hide Secret", systemImage: "eye.slash")
+                }
+            } else {
+                Button {
+                    requestRevealSecret()
+                } label: {
+                    Label("Reveal Secret Key", systemImage: "eye")
+                }
+            }
+        } header: {
+            Text("Token Details")
+        } footer: {
+            if isSecretRevealed {
+                Text("Anyone with this secret can generate codes for this account. Do not share it.")
+            }
+        }
+    }
+
+    private var otpAuthURI: String {
+        let typeStr = token.type == .totp ? "totp" : "hotp"
+        let issuerEnc = token.issuer.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token.issuer
+        let accountEnc = token.account.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token.account
+        let label = issuerEnc.isEmpty ? accountEnc : "\(issuerEnc):\(accountEnc)"
+
+        var params = [
+            "secret=\(token.secret)",
+            "issuer=\(issuerEnc)",
+            "algorithm=\(token.algorithm.rawValue.uppercased())",
+            "digits=\(token.digits)"
+        ]
+        if token.type == .totp {
+            params.append("period=\(token.period)")
+        } else {
+            params.append("counter=\(token.counter)")
+        }
+        return "otpauth://\(typeStr)/\(label)?\(params.joined(separator: "&"))"
+    }
+
+    private var qrCodeImage: UIImage? {
+        let context = CIContext()
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(otpAuthURI.utf8)
+        filter.correctionLevel = "M"
+        guard let outputImage = filter.outputImage else { return nil }
+        let scaled = outputImage.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private var pinAuthSheet: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Text("Verify Identity")
+                .font(.loraTitle)
+            Text("Enter your PIN to reveal the secret key")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            PinEntryView(
+                pinLength: authService.storedPinLength(),
+                onComplete: { pin in
+                    Task {
+                        let success = await authService.authenticateWithPin(pin)
+                        if success {
+                            showPinAuth = false
+                            isSecretRevealed = true
+                        } else {
+                            authPasswordError = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                authPasswordError = false
+                            }
+                        }
+                    }
+                },
+                showError: authPasswordError,
+                title: ""
+            )
+            Spacer()
+            Button("Cancel") { showPinAuth = false }
+                .padding(.bottom, 20)
+        }
+        .padding()
+        .themedBackground()
+    }
+
+    private var passwordAuthSheet: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Text("Verify Identity")
+                .font(.loraTitle)
+            Text("Enter your password to reveal the secret key")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            SecureField("Password", text: $authPasswordInput)
+                .textContentType(.password)
+                .padding()
+                .themedSecondaryBackground()
+                .clipShape(.rect(cornerRadius: 12))
+                .offset(x: authShakeOffset)
+                .onSubmit { attemptPasswordAuth() }
+
+            Button {
+                attemptPasswordAuth()
+            } label: {
+                Text("Verify")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.accent)
+            .disabled(authPasswordInput.isEmpty)
+
+            Spacer()
+            Button("Cancel") {
+                authPasswordInput = ""
+                showPasswordAuth = false
+            }
+            .padding(.bottom, 20)
+        }
+        .padding(.horizontal, 40)
+        .padding(.vertical, 20)
+        .themedBackground()
+    }
+
+    private func requestRevealSecret() {
+        switch store.settings.lockMethod {
+        case .none:
+            withAnimation { isSecretRevealed = true }
+        case .biometric:
+            Task {
+                if await authService.authenticateWithBiometrics() {
+                    isSecretRevealed = true
+                }
+            }
+        case .devicePasscode:
+            Task {
+                if await authService.authenticateWithDevicePasscode() {
+                    isSecretRevealed = true
+                }
+            }
+        case .pin:
+            authPasswordError = false
+            showPinAuth = true
+        case .password:
+            authPasswordInput = ""
+            showPasswordAuth = true
+        }
+    }
+
+    private func attemptPasswordAuth() {
+        Task {
+            let success = await authService.authenticateWithPassword(authPasswordInput)
+            if success {
+                authPasswordInput = ""
+                showPasswordAuth = false
+                isSecretRevealed = true
+            } else {
+                authPasswordInput = ""
+                withAnimation(.default.repeatCount(3, autoreverses: true).speed(6)) {
+                    authShakeOffset = 10
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    authShakeOffset = 0
                 }
             }
         }

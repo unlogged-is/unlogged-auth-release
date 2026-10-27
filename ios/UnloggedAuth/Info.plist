@@ -17,10 +17,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>UIFileSharingEnabled</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Lora-Regular.ttf</string>
@@ -28,6 +24,8 @@
 		<string>Lora-SemiBold.ttf</string>
 		<string>Lora-Bold.ttf</string>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

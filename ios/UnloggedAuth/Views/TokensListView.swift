@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TokensListView: View {
     let store: TokenStore
+    let authService: AuthenticationService
     let iconFetcher: ServiceIconFetcher
     @State private var searchText: String = ""
     @State private var showAddToken: Bool = false
@@ -9,16 +10,27 @@ struct TokensListView: View {
     @State private var tokenToMove: OTPToken?
     @State private var tokenToDelete: OTPToken?
     @State private var copiedTokenId: UUID?
-    @State private var showIPadSearch: Bool = false
+    @State private var showDuoSearch: Bool = false
     @FocusState private var isSearchFocused: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    // iPhone Duo optimizations
+    @State private var deviceCapabilities = DeviceCapabilities.shared
 
     private var isRegularWidth: Bool {
-        horizontalSizeClass == .regular
+        horizontalSizeClass == .regular || deviceCapabilities.isInnerDisplay
     }
 
     private var isCompactWidth: Bool {
-        horizontalSizeClass != .regular
+        !isRegularWidth
+    }
+    
+    private var shouldUseInlineSearch: Bool {
+        // Use inline search on iPhone Duo (both displays) or iPad
+        let isDuo = deviceCapabilities.isPhoneDuo
+        let isRegular = horizontalSizeClass == .regular
+        print("🔍 Debug - isDuo: \(isDuo), isRegular: \(isRegular), shouldUseInline: \(isDuo || (isRegular && !isDuo))")
+        return isDuo || (isRegular && !isDuo)
     }
 
     private var filteredTokens: [OTPToken] {
@@ -51,7 +63,10 @@ struct TokensListView: View {
                     }
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 12)], spacing: 12) {
+                        LazyVGrid(
+                            columns: deviceCapabilities.optimizedGridColumns(),
+                            spacing: deviceCapabilities.isInnerDisplay ? 16 : 12
+                        ) {
                             ForEach(filteredTokens) { token in
                                 TokenCardView(
                                     token: token,
@@ -89,7 +104,7 @@ struct TokensListView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal)
+                        .deviceAdaptivePadding()
                         .padding(.top, 8)
                     }
 
@@ -98,7 +113,7 @@ struct TokensListView: View {
             }
             .themedBackground()
             .navigationTitle("Tokens")
-            .if(isCompactWidth) { view in
+            .if(!shouldUseInlineSearch) { view in
                 view
                     .searchable(text: $searchText, prompt: "Search tokens")
                     .searchFocused($isSearchFocused)
@@ -123,46 +138,8 @@ struct TokensListView: View {
                             .font(.subheadline)
                     }
                 }
-                if isRegularWidth {
-                    ToolbarItem(placement: .topBarLeading) {
-                        if showIPadSearch {
-                            HStack(spacing: 8) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundStyle(.secondary)
-                                    .font(.subheadline)
-                                TextField("Search", text: $searchText)
-                                    .focused($isSearchFocused)
-                                    .textFieldStyle(.plain)
-                                    .font(.body)
-                                Button {
-                                    searchText = ""
-                                    isSearchFocused = false
-                                    withAnimation(.snappy) { showIPadSearch = false }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                        .font(.subheadline)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.thinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .frame(width: 260)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                        } else {
-                            Button {
-                                withAnimation(.snappy) { showIPadSearch = true }
-                                isSearchFocused = true
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.subheadline)
-                            }
-                        }
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
+                
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showAddToken = true
                     } label: {
@@ -170,8 +147,71 @@ struct TokensListView: View {
                             .font(.subheadline)
                     }
                 }
+                
+                if shouldUseInlineSearch {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation(.snappy(duration: 0.3)) {
+                                showDuoSearch.toggle()
+                            }
+                            if showDuoSearch {
+                                isSearchFocused = true
+                            } else {
+                                searchText = ""
+                                isSearchFocused = false
+                            }
+                        } label: {
+                            Image(systemName: showDuoSearch ? "xmark" : "magnifyingglass")
+                                .font(.subheadline)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if shouldUseInlineSearch && showDuoSearch {
+                    HStack {
+                        Spacer()
+                        
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.tertiary)
+                                .font(.body)
+                            
+                            TextField("Search tokens", text: $searchText)
+                                .focused($isSearchFocused)
+                                .textFieldStyle(.plain)
+                                .font(.body)
+                            
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.tertiary)
+                                        .font(.body)
+                                }
+                                .buttonStyle(.plain)
+                                .transition(.scale.combined(with: .opacity))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+                        }
+                        .frame(maxWidth: 400)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
+                }
             }
             .onAppear {
+                deviceCapabilities.updateDetection()
                 if store.settings.focusSearchOnLaunch {
                     isSearchFocused = true
                 }
@@ -180,7 +220,7 @@ struct TokensListView: View {
                 AddTokenView(store: store, iconFetcher: iconFetcher)
             }
             .sheet(item: $editingToken) { token in
-                EditTokenView(store: store, token: token, iconFetcher: iconFetcher)
+                EditTokenView(store: store, authService: authService, token: token, iconFetcher: iconFetcher)
             }
             .sheet(item: $tokenToMove) { token in
                 MoveToGroupSheet(store: store, token: token)

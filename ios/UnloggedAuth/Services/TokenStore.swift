@@ -54,6 +54,49 @@ class TokenStore {
         cleanupExpiredTrash()
     }
 
+    /// Reload only the credential-encrypted data (tokens + trash) after unlock.
+    /// File reads, decryption, and JSON decoding happen off the main thread.
+    func loadEncryptedDataAfterUnlock() async {
+        let tokensURL = tokensFileURL
+        let trashURL = trashFileURL
+
+        let (decodedTokens, decodedTrash) = await Task.detached(priority: .userInitiated) { () -> ([OTPToken], [TrashedToken]) in
+            let loadedTokens: [OTPToken]
+            if FileManager.default.fileExists(atPath: tokensURL.path),
+               let encrypted = try? Data(contentsOf: tokensURL),
+               let decrypted = try? EncryptionService.decrypt(encrypted),
+               let decoded = try? JSONDecoder().decode([OTPToken].self, from: decrypted) {
+                loadedTokens = decoded
+            } else if FileManager.default.fileExists(atPath: tokensURL.path),
+                      let raw = try? Data(contentsOf: tokensURL),
+                      let decoded = try? JSONDecoder().decode([OTPToken].self, from: raw) {
+                loadedTokens = decoded
+            } else {
+                loadedTokens = []
+            }
+
+            let loadedTrash: [TrashedToken]
+            if FileManager.default.fileExists(atPath: trashURL.path),
+               let encrypted = try? Data(contentsOf: trashURL),
+               let decrypted = try? EncryptionService.decrypt(encrypted),
+               let decoded = try? JSONDecoder().decode([TrashedToken].self, from: decrypted) {
+                loadedTrash = decoded
+            } else if FileManager.default.fileExists(atPath: trashURL.path),
+                      let raw = try? Data(contentsOf: trashURL),
+                      let decoded = try? JSONDecoder().decode([TrashedToken].self, from: raw) {
+                loadedTrash = decoded
+            } else {
+                loadedTrash = []
+            }
+
+            return (loadedTokens, loadedTrash)
+        }.value
+
+        tokens = decodedTokens
+        trashedTokens = decodedTrash
+        cleanupExpiredTrash()
+    }
+
     private func loadTokens() {
         guard FileManager.default.fileExists(atPath: tokensFileURL.path) else { return }
         do {

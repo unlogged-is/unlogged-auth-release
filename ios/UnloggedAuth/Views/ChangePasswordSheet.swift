@@ -35,10 +35,12 @@ struct ChangePasswordSheet: View {
                             showMismatch = true
                             return
                         }
-                        authService.setPassword(newPassword)
-                        store.settings.lockMethod = .password
-                        store.saveSettings()
-                        dismiss()
+                        Task {
+                            await authService.setPassword(newPassword)
+                            store.settings.lockMethod = .password
+                            store.saveSettings()
+                            dismiss()
+                        }
                     }
                     .disabled(newPassword.isEmpty || confirmPassword.isEmpty)
                 }

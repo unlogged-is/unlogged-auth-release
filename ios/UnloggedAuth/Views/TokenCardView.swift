@@ -12,14 +12,32 @@ struct TokenCardView: View {
     @State private var progress: Double = 0
     @State private var remainingSeconds: Int = 0
     @State private var timer: Timer?
+    
+    // iPhone Duo optimizations
+    private let deviceCapabilities = DeviceCapabilities.shared
+    
+    // Enhanced sizing for larger displays
+    private var iconSize: CGFloat {
+        deviceCapabilities.isInnerDisplay ? 52 : 44
+    }
+    
+    private var cardPadding: CGFloat {
+        deviceCapabilities.isInnerDisplay ? 20 : 16
+    }
+    
+    private var codeFont: Font {
+        deviceCapabilities.isInnerDisplay 
+            ? .system(.title, design: .monospaced, weight: .bold)
+            : .system(.title2, design: .monospaced, weight: .bold)
+    }
 
     var body: some View {
         Button {
             onCopy()
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: deviceCapabilities.isInnerDisplay ? 16 : 14) {
                 tokenIcon
-                    .frame(width: 44, height: 44)
+                    .frame(width: iconSize, height: iconSize)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(token.issuer.isEmpty ? "Unknown" : token.issuer)
@@ -39,7 +57,7 @@ struct TokenCardView: View {
 
                 VStack(alignment: .trailing, spacing: 6) {
                     Text(OTPGenerator.formatCode(currentCode))
-                        .font(.system(.title2, design: .monospaced, weight: .bold))
+                        .font(codeFont)
                         .foregroundStyle(isCopied ? .accent : .primary)
                         .contentTransition(.numericText())
 
@@ -58,7 +76,7 @@ struct TokenCardView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(cardPadding)
             .themedSecondaryBackground()
             .clipShape(.rect(cornerRadius: 16))
             .overlay(

@@ -23,17 +23,14 @@ struct SettingsView: View {
     @State private var restorePassword: String = ""
     @State private var backupError: String?
     @State private var restoreFileData: Data?
-    @State private var showBackupExporter = false
-    @State private var backupFileData: Data?
-    @State private var backupFileName: String = ""
+    @State private var showExporter = false
+    @State private var exportSelection: FileExportSelection?
     @State private var showRemoveBiometricConfirm = false
     @State private var showRemovePasswordPrompt = false
     @State private var removePasswordInput: String = ""
     @State private var removePasswordError: String?
     @State private var showExportChoice = false
     @State private var showExportWarning = false
-    @State private var showPlaintextExporter = false
-    @State private var plaintextExportData: Data?
     @State private var showExportSuccess = false
     @State private var exportSuccessMessage = ""
     @State private var showExportFailure = false
@@ -43,9 +40,6 @@ struct SettingsView: View {
     @State private var encryptedExportPassword = ""
     @State private var encryptedExportConfirm = ""
     @State private var encryptedExportError: String?
-    @State private var showEncryptedExporter = false
-    @State private var encryptedExportData: Data?
-    @State private var encryptedExportFilename = ""
     @State private var showPinSetup = false
     @State private var showRemovePinPrompt = false
     @State private var removePinError = false
@@ -76,9 +70,6 @@ struct SettingsView: View {
         }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.ulauth, .json, .plainText, .data], allowsMultipleSelection: false) { result in
             handleRestoreFilePick(result)
-        }
-        .fileExporter(isPresented: $showBackupExporter, document: BackupDocument(data: backupFileData ?? Data()), contentType: .ulauth, defaultFilename: backupFileName) { result in
-            handleExportResult(result)
         }
         .alert("Backup Complete", isPresented: $showBackupSuccess) {
             Button("OK") {}
@@ -135,16 +126,19 @@ struct SettingsView: View {
                 removePasswordError = nil
             }
             Button("Remove", role: .destructive) {
-                if authService.authenticateWithPassword(removePasswordInput) {
-                    authService.clearPassword()
-                    store.settings.lockMethod = .none
-                    store.saveSettings()
-                    removePasswordInput = ""
-                    removePasswordError = nil
-                } else {
-                    removePasswordError = "Incorrect password"
-                    removePasswordInput = ""
-                    showRemovePasswordPrompt = true
+                Task {
+                    let success = await authService.authenticateWithPassword(removePasswordInput)
+                    if success {
+                        authService.clearPassword()
+                        store.settings.lockMethod = .none
+                        store.saveSettings()
+                        removePasswordInput = ""
+                        removePasswordError = nil
+                    } else {
+                        removePasswordError = "Incorrect password"
+                        removePasswordInput = ""
+                        showRemovePasswordPrompt = true
+                    }
                 }
             }
         } message: {
@@ -187,35 +181,23 @@ struct SettingsView: View {
         } message: {
             Text(exportFailureMessage)
         }
-        .fileExporter(isPresented: $showPlaintextExporter, document: ExportDocument(data: plaintextExportData ?? Data()), contentType: .plainText, defaultFilename: "unlogged-auth-export.txt") { result in
-            switch result {
-            case .success(let url):
-                exportSuccessMessage = "Exported \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s") as plaintext URIs.\n\nSaved to:\n\(url.lastPathComponent)\n\nStore it securely and delete it after use."
-                showExportSuccess = true
-            case .failure(let error):
-                exportFailureMessage = "Could not export tokens.\n\n\(error.localizedDescription)"
-                showExportFailure = true
-            }
-            plaintextExportData = nil
-        }
-        .fileExporter(isPresented: $showEncryptedExporter, document: BackupDocument(data: encryptedExportData ?? Data()), contentType: .ulauth, defaultFilename: encryptedExportFilename) { result in
-            switch result {
-            case .success(let url):
-                exportSuccessMessage = "Exported \(store.tokens.count) token\(store.tokens.count == 1 ? "" : "s") as an encrypted file.\n\nSaved to:\n\(url.lastPathComponent)\n\nYou'll need your export password to import this file."
-                showExportSuccess = true
-            case .failure(let error):
-                exportFailureMessage = "Could not export tokens.\n\n\(error.localizedDescription)"
-                showExportFailure = true
-            }
-            encryptedExportData = nil
+        .fileExporter(
+            isPresented: $showExporter,
+            document: ExportDocument(data: exportSelection?.data ?? Data()),
+            contentType: exportSelection?.contentType ?? .plainText,
+            defaultFilename: exportSelection?.filename ?? "export"
+        ) { result in
+            handleExportCompletion(result)
         }
         .sheet(isPresented: $showPinSetup) {
             NavigationStack {
                 PinSetupView { pin in
-                    authService.setPin(pin)
-                    store.settings.lockMethod = .pin
-                    store.saveSettings()
-                    showPinSetup = false
+                    Task {
+                        await authService.setPin(pin)
+                        store.settings.lockMethod = .pin
+                        store.saveSettings()
+                        showPinSetup = false
+                    }
                 } onCancel: {
                     showPinSetup = false
                 }
@@ -242,17 +224,20 @@ struct SettingsView: View {
                     PinEntryView(
                         pinLength: authService.storedPinLength(),
                         onComplete: { pin in
-                            if authService.authenticateWithPin(pin) {
-                                authService.clearPin()
-                                store.settings.lockMethod = .none
-                                store.saveSettings()
-                                showRemovePinPrompt = false
-                                removePinError = false
-                            } else {
-                                removePinError = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            Task {
+                                let success = await authService.authenticateWithPin(pin)
+                                if success {
+                                    authService.clearPin()
+                                    store.settings.lockMethod = .none
+                                    store.saveSettings()
+                                    showRemovePinPrompt = false
                                     removePinError = false
-                                    removePinEntryId = UUID()
+                                } else {
+                                    removePinError = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                        removePinError = false
+                                        removePinEntryId = UUID()
+                                    }
                                 }
                             }
                         },
@@ -645,8 +630,7 @@ struct SettingsView: View {
 
     private func performPlaintextExport() {
         guard let data = ExportService.exportAsURIData(tokens: store.tokens) else { return }
-        plaintextExportData = data
-        showPlaintextExporter = true
+        presentExporter(with: FileExportSelection.plaintext(data))
     }
 
     private func performEncryptedExport() {
@@ -666,12 +650,10 @@ struct SettingsView: View {
         }
         do {
             let result = try BackupService.createEncryptedBackup(store: store, password: encryptedExportPassword)
-            encryptedExportData = result.data
-            encryptedExportFilename = result.filename
             encryptedExportPassword = ""
             encryptedExportConfirm = ""
             encryptedExportError = nil
-            showEncryptedExporter = true
+            presentExporter(with: FileExportSelection.encrypted(data: result.data, filename: result.filename))
         } catch {
             encryptedExportError = error.localizedDescription
             encryptedExportPassword = ""
@@ -680,17 +662,31 @@ struct SettingsView: View {
         }
     }
 
-    private func handleExportResult(_ result: Result<URL, Error>) {
+    private func presentExporter(with selection: FileExportSelection) {
+        exportSelection = selection
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            showExporter = true
+        }
+    }
+
+    private func handleExportCompletion(_ result: Result<URL, Error>) {
+        let count = store.tokens.count
+        let plural = count == 1 ? "" : "s"
         switch result {
-        case .success:
-            store.settings.lastBackupDate = Date()
-            store.saveSettings()
-            showBackupSuccess = true
+        case .success(let url):
+            switch exportSelection {
+            case .plaintext:
+                exportSuccessMessage = "Exported \(count) token\(plural) as plaintext URIs.\n\nSaved to:\n\(url.lastPathComponent)\n\nStore it securely and delete it after use."
+            case .encrypted, .none:
+                exportSuccessMessage = "Exported \(count) token\(plural) as an encrypted file.\n\nSaved to:\n\(url.lastPathComponent)\n\nYou'll need your export password to import this file."
+            }
+            showExportSuccess = true
         case .failure(let error):
-            exportFailureMessage = "Backup could not be saved.\n\n\(error.localizedDescription)"
+            exportFailureMessage = "Could not export tokens.\n\n\(error.localizedDescription)"
             showExportFailure = true
         }
-        backupFileData = nil
+        exportSelection = nil
     }
 
     private func handleRestoreFilePick(_ result: Result<[URL], Error>) {
@@ -728,26 +724,34 @@ struct SettingsView: View {
     }
 }
 
-struct BackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] = [.ulauth]
+enum FileExportSelection: Equatable {
+    case plaintext(Data)
+    case encrypted(data: Data, filename: String)
 
-    let data: Data
-
-    init(data: Data) {
-        self.data = data
+    var data: Data {
+        switch self {
+        case .plaintext(let data): return data
+        case .encrypted(let data, _): return data
+        }
     }
 
-    nonisolated init(configuration: ReadConfiguration) throws {
-        data = configuration.file.regularFileContents ?? Data()
+    var contentType: UTType {
+        switch self {
+        case .plaintext: return .plainText
+        case .encrypted: return .ulauth
+        }
     }
 
-    nonisolated func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
+    var filename: String {
+        switch self {
+        case .plaintext: return "unlogged-auth-export.txt"
+        case .encrypted(_, let filename): return filename
+        }
     }
 }
 
 struct ExportDocument: FileDocument {
-    static var readableContentTypes: [UTType] = [.plainText]
+    static var readableContentTypes: [UTType] = [.plainText, .ulauth]
 
     let data: Data
 

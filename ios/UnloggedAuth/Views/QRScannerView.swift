@@ -17,10 +17,36 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     var onScan: ((String) -> Void)?
     private var captureSession: AVCaptureSession?
     private var hasScanned = false
+    private let deviceCapabilities = DeviceCapabilities.shared
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCamera()
+        
+        // Add visual indicator for iPhone Duo outer display
+        if deviceCapabilities.isOuterDisplay {
+            addCompactScanningHint()
+        }
+    }
+    
+    private func addCompactScanningHint() {
+        let hintLabel = UILabel()
+        hintLabel.text = "Unfold for larger view"
+        hintLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        hintLabel.textColor = .white
+        hintLabel.textAlignment = .center
+        hintLabel.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        hintLabel.layer.cornerRadius = 8
+        hintLabel.clipsToBounds = true
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(hintLabel)
+        NSLayoutConstraint.activate([
+            hintLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
+            hintLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hintLabel.widthAnchor.constraint(equalToConstant: 200),
+            hintLabel.heightAnchor.constraint(equalToConstant: 36)
+        ])
     }
 
     private func setupCamera() {
